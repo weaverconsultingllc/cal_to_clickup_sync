@@ -1,0 +1,20 @@
+# Python
+*.pyc
+__pycache__/
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+*.egg
+
+# Flask
+instance/
+*.log
+
+# Virtual Environment
+.venv/
+
+# IDE/Editor Files
+.vscode/
+.idea/
