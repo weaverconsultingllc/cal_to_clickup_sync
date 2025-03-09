@@ -6,52 +6,48 @@ This script retrieves upcoming events from Google Calendar for specified users
 and creates corresponding tasks in ClickUp for capacity planning.
 """
 
+import calendar
 import datetime
 import logging
-import sys
-import calendar
-import requests
 import re
+import sys
 from html.parser import HTMLParser
 
+import requests
+from config import (
+    CALENDAR_SYNC_DAYS,
+    CLICKUP_API_KEY,
+    CLICKUP_LIST_ID,
+    CLICKUP_TEAM_ID,
+    DATE_FORMAT,
+    DATE_FORMAT_NO_TIME,
+    DEBUG,
+    GOOGLE_CALENDAR_SCOPES,
+    HOST_DOMAINS,
+    HOST_EMAILS,
+    LOG_FILE,
+    SERVICE_ACCOUNT_FILE,
+)
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from config import (
-    GOOGLE_CALENDAR_SCOPES,
-    SERVICE_ACCOUNT_FILE,
-    CALENDAR_SYNC_DAYS,
-    DATE_FORMAT,
-    DATE_FORMAT_NO_TIME,
-    HOST_EMAILS,
-    HOST_DOMAINS,
-    CLICKUP_API_KEY,
-    CLICKUP_TEAM_ID,
-    CLICKUP_LIST_ID,
-    DEBUG,
-    LOG_FILE
-)
-
 __version__ = "0.1.0"
+
 
 # Set up logging
 def setup_logging():
     """Configure logging for the application."""
-    log_format = '%(asctime)s - %(levelname)-7s - %(filename)s:%(funcName)s:%(lineno)d - %(message)s'
+    log_format = "%(asctime)s - %(levelname)-7s - %(filename)s:%(funcName)s:%(lineno)d - %(message)s"
     log_level = logging.DEBUG if DEBUG else logging.INFO
 
-    logging.basicConfig(
-        filename=LOG_FILE,
-        format=log_format,
-        level=log_level
-    )
+    logging.basicConfig(filename=LOG_FILE, format=log_format, level=log_level)
 
     # Add console handler for visibility
     console = logging.StreamHandler()
     console.setLevel(log_level)
     console.setFormatter(logging.Formatter(log_format))
-    logging.getLogger('').addHandler(console)
+    logging.getLogger("").addHandler(console)
 
     # Handle uncaught exceptions
     def handle_exception(exc_type, exc_value, exc_traceback):
@@ -64,6 +60,7 @@ def setup_logging():
 
     return logging.getLogger(__name__)
 
+
 logger = setup_logging()
 
 
@@ -73,55 +70,55 @@ class HTMLtoTextConverter(HTMLParser):
     def __init__(self):
         super().__init__()
         self.result = []
-        self.list_item_prefix = ''
+        self.list_item_prefix = ""
         self.in_list = False
         self.list_item_num = 0
         self.skip_data = False
         self.in_link = False
-        self.link_href = ''
+        self.link_href = ""
 
     def handle_starttag(self, tag, attrs):
-        if tag == 'br':
-            self.result.append('\n')
-        elif tag == 'p':
-            if self.result and not self.result[-1].endswith('\n'):
-                self.result.append('\n')
-        elif tag == 'ul':
+        if tag == "br":
+            self.result.append("\n")
+        elif tag == "p":
+            if self.result and not self.result[-1].endswith("\n"):
+                self.result.append("\n")
+        elif tag == "ul":
             self.in_list = True
-            self.list_item_prefix = '• '
-            self.result.append('\n')
-        elif tag == 'ol':
+            self.list_item_prefix = "• "
+            self.result.append("\n")
+        elif tag == "ol":
             self.in_list = True
-            self.list_item_prefix = '1. '
+            self.list_item_prefix = "1. "
             self.list_item_num = 1
-            self.result.append('\n')
-        elif tag == 'li':
+            self.result.append("\n")
+        elif tag == "li":
             if self.in_list:
                 prefix = self.list_item_prefix
-                if prefix == '1. ':
+                if prefix == "1. ":
                     prefix = f"{self.list_item_num}. "
                     self.list_item_num += 1
                 self.result.append(f"\n{prefix}")
-        elif tag == 'a':
+        elif tag == "a":
             self.in_link = True
             for attr in attrs:
-                if attr[0] == 'href':
+                if attr[0] == "href":
                     self.link_href = attr[1]
-        elif tag in ['script', 'style']:
+        elif tag in ["script", "style"]:
             self.skip_data = True
 
     def handle_endtag(self, tag):
-        if tag == 'p':
-            self.result.append('\n')
-        elif tag in ['ul', 'ol']:
+        if tag == "p":
+            self.result.append("\n")
+        elif tag in ["ul", "ol"]:
             self.in_list = False
-            self.result.append('\n')
-        elif tag == 'a':
+            self.result.append("\n")
+        elif tag == "a":
             if self.in_link and self.link_href:
                 self.result.append(f" ({self.link_href})")
             self.in_link = False
-            self.link_href = ''
-        elif tag in ['script', 'style']:
+            self.link_href = ""
+        elif tag in ["script", "style"]:
             self.skip_data = False
 
     def handle_data(self, data):
@@ -129,7 +126,7 @@ class HTMLtoTextConverter(HTMLParser):
             self.result.append(data)
 
     def get_text(self):
-        return ''.join(self.result)
+        return "".join(self.result)
 
 
 def clean_html(html_text):
@@ -138,10 +135,10 @@ def clean_html(html_text):
         return ""
 
     # Replace common problematic HTML entities
-    html_text = html_text.replace('&nbsp;', ' ')
+    html_text = html_text.replace("&nbsp;", " ")
 
     # Remove excessive whitespace
-    html_text = re.sub(r'\s+', ' ', html_text)
+    html_text = re.sub(r"\s+", " ", html_text)
 
     # Parse HTML
     converter = HTMLtoTextConverter()
@@ -149,7 +146,7 @@ def clean_html(html_text):
     text = converter.get_text()
 
     # Clean up extra newlines
-    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
 
@@ -179,9 +176,7 @@ class GoogleCalendarService:
             Credentials: Google service account credentials
         """
         return service_account.Credentials.from_service_account_file(
-            self.service_account_file,
-            scopes=self.scopes,
-            subject=user_email
+            self.service_account_file, scopes=self.scopes, subject=user_email
         )
 
     def get_calendar_service(self, user_email):
@@ -215,8 +210,7 @@ class GoogleCalendarService:
 
             # Calculate time range
             now = datetime.datetime.utcnow().isoformat() + "Z"  # 'Z' indicates UTC time
-            later = (datetime.datetime.utcnow() +
-                    datetime.timedelta(days=days_ahead)).isoformat() + "Z"
+            later = (datetime.datetime.utcnow() + datetime.timedelta(days=days_ahead)).isoformat() + "Z"
 
             events_result = (
                 service.events()
@@ -299,12 +293,15 @@ class EventProcessor:
 
                 # Try all-day event format
                 try:
-                    duration = (datetime.datetime.strptime(end, DATE_FORMAT_NO_TIME) -
-                               datetime.datetime.strptime(start, DATE_FORMAT_NO_TIME))
+                    duration = datetime.datetime.strptime(end, DATE_FORMAT_NO_TIME) - datetime.datetime.strptime(
+                        start, DATE_FORMAT_NO_TIME
+                    )
                     logger.debug(f"No time on event. Skipping event: '{event['summary']}'...")
                     continue
                 except ValueError:
-                    logger.error(f"Failed date format for all day: {event['summary']} (start={start}, end={end}). Skipping...")
+                    logger.error(
+                        f"Failed date format for all day: {event['summary']} (start={start}, end={end}). Skipping..."
+                    )
                     continue
 
             if duration is None:
@@ -312,57 +309,57 @@ class EventProcessor:
                 continue
 
             # Extract additional valuable information
-            description = event.get('description', '')
-            location = event.get('location', '')
-            status = event.get('status', 'confirmed')
+            description = event.get("description", "")
+            location = event.get("location", "")
+            status = event.get("status", "confirmed")
 
             # Fix: Check multiple indicators for recurring events
             is_recurring = (
-                'recurrence' in event or
-                'recurringEventId' in event or
-                (event.get('description', '') and 'recurring series' in event.get('description', '').lower())
+                "recurrence" in event
+                or "recurringEventId" in event
+                or (event.get("description", "") and "recurring series" in event.get("description", "").lower())
             )
 
             if is_recurring:
                 logger.debug(f"Recurring meeting detected: {event.get('summary')}")
-                if 'recurrence' in event:
+                if "recurrence" in event:
                     logger.debug("  - Has recurrence field")
-                if 'recurringEventId' in event:
+                if "recurringEventId" in event:
                     logger.debug(f"  - Has recurringEventId field: {event.get('recurringEventId')}")
-                if event.get('description', '') and 'recurring series' in event.get('description', '').lower():
+                if event.get("description", "") and "recurring series" in event.get("description", "").lower():
                     logger.debug("  - Description contains 'recurring series'")
 
-            organizer = event.get('organizer', {}).get('email', '')
+            organizer = event.get("organizer", {}).get("email", "")
 
             # Extract conference data if available
-            conference_data = event.get('conferenceData', {})
-            meeting_link = ''
-            if conference_data and 'entryPoints' in conference_data:
-                for entry_point in conference_data['entryPoints']:
-                    if entry_point.get('entryPointType') in ['video', 'more']:
-                        meeting_link = entry_point.get('uri', '')
+            conference_data = event.get("conferenceData", {})
+            meeting_link = ""
+            if conference_data and "entryPoints" in conference_data:
+                for entry_point in conference_data["entryPoints"]:
+                    if entry_point.get("entryPointType") in ["video", "more"]:
+                        meeting_link = entry_point.get("uri", "")
                         break
 
             # Create simplified event object with additional fields
             processed_event = {
-                "summary": event['summary'],
-                "attendees": event['attendees'],
+                "summary": event["summary"],
+                "attendees": event["attendees"],
                 "start": datetime.datetime.strptime(start, DATE_FORMAT),
                 "end": datetime.datetime.strptime(end, DATE_FORMAT),
                 "duration": duration,
-                "iCalUID": event['iCalUID'],
+                "iCalUID": event["iCalUID"],
                 "description": description,
                 "location": location,
                 "meeting_link": meeting_link,
                 "status": status,
                 "is_recurring": is_recurring,
                 "organizer": organizer,
-                "recurrence": event.get('recurrence', []),  # Store recurrence rules if available
-                "recurringEventId": event.get('recurringEventId', '')  # Store recurring event ID if available
+                "recurrence": event.get("recurrence", []),  # Store recurrence rules if available
+                "recurringEventId": event.get("recurringEventId", ""),  # Store recurring event ID if available
             }
 
             # Use UID as key to deduplicate
-            processed_events[event['iCalUID']] = processed_event
+            processed_events[event["iCalUID"]] = processed_event
 
         logger.debug(f"Processed {len(processed_events)} unique events")
         return processed_events
@@ -416,10 +413,10 @@ class ClickUpService:
         email_to_id_map = {}
 
         # Build email to ID mapping from teams data
-        for team in teams_data.get('teams', []):
-            for member in team.get('members', []):
-                user_email = member.get('user', {}).get('email', '')
-                user_id = member.get('user', {}).get('id', '')
+        for team in teams_data.get("teams", []):
+            for member in team.get("members", []):
+                user_email = member.get("user", {}).get("email", "")
+                user_id = member.get("user", {}).get("id", "")
                 email_to_id_map[user_email] = user_id
 
         # Find user IDs for the given emails
@@ -443,11 +440,11 @@ class ClickUpService:
         amc_attendees = []
         guest_attendees = []
 
-        for attendee in event['attendees']:
-            if any(domain in attendee['email'] for domain in HOST_DOMAINS):
-                amc_attendees.append(attendee['email'].split('@')[0].capitalize())
+        for attendee in event["attendees"]:
+            if any(domain in attendee["email"] for domain in HOST_DOMAINS):
+                amc_attendees.append(attendee["email"].split("@")[0].capitalize())
             else:
-                guest_attendees.append(attendee['email'])
+                guest_attendees.append(attendee["email"])
 
         attendees_str = ", ".join(sorted(amc_attendees) + sorted(guest_attendees))
 
@@ -455,28 +452,28 @@ class ClickUpService:
         description = f"{event['summary']}\n\n"
 
         # Add meeting description/agenda if available, cleaned from HTML
-        if event['description']:
-            cleaned_description = clean_html(event['description'])
+        if event["description"]:
+            cleaned_description = clean_html(event["description"])
             description += f"Agenda:\n{cleaned_description}\n\n"
 
         # Add location and meeting link information
-        if event['location']:
+        if event["location"]:
             description += f"Location: {event['location']}\n"
 
-        if event['meeting_link']:
+        if event["meeting_link"]:
             description += f"Meeting Link: {event['meeting_link']}\n"
 
         # Add attendees list
         description += f"Attendees: {attendees_str}\n"
 
         # Add recurrence information if available
-        if event['is_recurring']:
-            if event['recurrence']:
+        if event["is_recurring"]:
+            if event["recurrence"]:
                 # Format recurrence rules for better readability
-                recurrence_rules = [rule.replace('RRULE:', '') for rule in event['recurrence']]
+                recurrence_rules = [rule.replace("RRULE:", "") for rule in event["recurrence"]]
                 if recurrence_rules:
                     description += f"Recurrence: {', '.join(recurrence_rules)}\n"
-            elif event['recurringEventId']:
+            elif event["recurringEventId"]:
                 description += f"Part of a recurring series (ID: {event['recurringEventId']})\n"
             else:
                 description += "Part of a recurring series\n"
@@ -485,8 +482,8 @@ class ClickUpService:
         internal_domains = HOST_DOMAINS
         all_attendees_internal = True
 
-        for attendee in event['attendees']:
-            attendee_email = attendee.get('email', '')
+        for attendee in event["attendees"]:
+            attendee_email = attendee.get("email", "")
             if not any(domain in attendee_email for domain in internal_domains):
                 all_attendees_internal = False
                 break
@@ -495,68 +492,57 @@ class ClickUpService:
 
         # Map meeting status to priority
         status_priority_map = {
-            'confirmed': 3,  # High priority
-            'tentative': 2,  # Normal priority
-            'cancelled': 1   # Low priority
+            "confirmed": 3,  # High priority
+            "tentative": 2,  # Normal priority
+            "cancelled": 1,  # Low priority
         }
-        meeting_priority = status_priority_map.get(event['status'], 3)
+        meeting_priority = status_priority_map.get(event["status"], 3)
 
         # Build tags list
         tags = ["meeting"]
 
         # Add recurring tag if applicable
-        if event['is_recurring']:
+        if event["is_recurring"]:
             tags.append("recurring-meeting")
 
         # Add meeting type tag
         tags.append(meeting_type)
 
         # Prepare request
-        query = {
-            "custom_task_ids": "true",
-            "team_id": self.team_id
-        }
+        query = {"custom_task_ids": "true", "team_id": self.team_id}
 
         payload = {
-            "name": event['summary'],
+            "name": event["summary"],
             "description": description,
-            "time_estimate": int(event['duration'].total_seconds() * 1000),
-            "start_date": int(calendar.timegm(event['start'].timetuple()) * 1000),
-            "due_date": int(calendar.timegm(event['start'].timetuple()) * 1000),
+            "time_estimate": int(event["duration"].total_seconds() * 1000),
+            "start_date": int(calendar.timegm(event["start"].timetuple()) * 1000),
+            "due_date": int(calendar.timegm(event["start"].timetuple()) * 1000),
             "assignees": assignee_ids,
             "priority": meeting_priority,
             "tags": tags,
         }
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": self.api_key
-        }
+        headers = {"Content-Type": "application/json", "Authorization": self.api_key}
 
         logger.debug(f"Creating task: {event['summary']} with attendees: {attendees_str}")
         logger.debug(f"Is recurring: {event['is_recurring']}, Tags: {tags}")
 
         # Log details about why this is or isn't detected as recurring
         recurring_reasons = []
-        if 'recurrence' in event:
+        if "recurrence" in event:
             recurring_reasons.append("Has 'recurrence' field")
-        if event.get('recurringEventId', ''):
+        if event.get("recurringEventId", ""):
             recurring_reasons.append(f"Has 'recurringEventId': {event['recurringEventId']}")
-        if event.get('description', '') and 'recurring series' in event.get('description', '').lower():
+        if event.get("description", "") and "recurring series" in event.get("description", "").lower():
             recurring_reasons.append("Description contains 'recurring series'")
 
-        if event['is_recurring']:
+        if event["is_recurring"]:
             logger.debug(f"Recurring meeting reasons: {', '.join(recurring_reasons)}")
         elif recurring_reasons:
             logger.warning(f"Meeting has recurring indicators but wasn't classified as recurring: {recurring_reasons}")
 
         try:
-            response = requests.post(
-                url,
-                json=payload,
-                headers=headers,
-                params=query
-            )
+            response = requests.post(url, json=payload, headers=headers, params=query)
             response.raise_for_status()
             return True
         except requests.RequestException as e:
@@ -569,16 +555,9 @@ class CalendarSyncApp:
 
     def __init__(self):
         """Initialize the application."""
-        self.calendar_service = GoogleCalendarService(
-            SERVICE_ACCOUNT_FILE,
-            GOOGLE_CALENDAR_SCOPES
-        )
+        self.calendar_service = GoogleCalendarService(SERVICE_ACCOUNT_FILE, GOOGLE_CALENDAR_SCOPES)
         self.event_processor = EventProcessor()
-        self.clickup_service = ClickUpService(
-            CLICKUP_API_KEY,
-            CLICKUP_TEAM_ID,
-            CLICKUP_LIST_ID
-        )
+        self.clickup_service = ClickUpService(CLICKUP_API_KEY, CLICKUP_TEAM_ID, CLICKUP_LIST_ID)
 
     def run(self):
         """Execute the sync process."""
@@ -586,10 +565,7 @@ class CalendarSyncApp:
 
         # 1. Fetch calendar events
         logger.info("Fetching calendar events...")
-        events = self.calendar_service.get_all_calendar_events(
-            HOST_EMAILS,
-            CALENDAR_SYNC_DAYS
-        )
+        events = self.calendar_service.get_all_calendar_events(HOST_EMAILS, CALENDAR_SYNC_DAYS)
 
         # 2. Process events
         logger.info("Processing events...")
@@ -604,28 +580,24 @@ class CalendarSyncApp:
         logger.info("Creating ClickUp tasks...")
         success_count = 0
         recurring_count = 0
-        recurring_types = {
-            'recurrence_field': 0,
-            'recurringEventId_field': 0,
-            'description_text': 0
-        }
+        recurring_types = {"recurrence_field": 0, "recurringEventId_field": 0, "description_text": 0}
 
         for event_id, event in processed_events.items():
             # Get assignee IDs
             assignee_ids = []
-            for attendee in event['attendees']:
-                if attendee['email'] in user_id_map and user_id_map[attendee['email']]:
-                    assignee_ids.append(user_id_map[attendee['email']])
+            for attendee in event["attendees"]:
+                if attendee["email"] in user_id_map and user_id_map[attendee["email"]]:
+                    assignee_ids.append(user_id_map[attendee["email"]])
 
             # Count recurring events and track detection method
-            if event['is_recurring']:
+            if event["is_recurring"]:
                 recurring_count += 1
-                if 'recurrence' in event:
-                    recurring_types['recurrence_field'] += 1
-                if event.get('recurringEventId', ''):
-                    recurring_types['recurringEventId_field'] += 1
-                if event.get('description', '') and 'recurring series' in event.get('description', '').lower():
-                    recurring_types['description_text'] += 1
+                if "recurrence" in event:
+                    recurring_types["recurrence_field"] += 1
+                if event.get("recurringEventId", ""):
+                    recurring_types["recurringEventId_field"] += 1
+                if event.get("description", "") and "recurring series" in event.get("description", "").lower():
+                    recurring_types["description_text"] += 1
 
             # Create task
             if self.clickup_service.create_task(event, assignee_ids):
