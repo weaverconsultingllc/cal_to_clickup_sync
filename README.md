@@ -1,4 +1,4 @@
-# Calendar to ClickUp Sync
+# Google GSuite Calendar to ClickUp Sync
 
 This application synchronizes Google Calendar events to ClickUp tasks for capacity planning and resource management.
 
